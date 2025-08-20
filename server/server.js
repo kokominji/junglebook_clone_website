@@ -12,15 +12,6 @@ app.use(cors({
   credentials: true
 }));
 
-// 임시 사용자 데이터 (실제로는 데이터베이스에서 관리)
-const mockUser = {
-  id: 1,
-  displayName: '고민지',
-  username: 'gomindev',
-  avatar: 'https://avatars.githubusercontent.com/u/123952779?v=4',
-  description: '크래프톤 정글 9기'
-};
-
 // Configure the GitHub strategy for use by Passport.
 passport.use(
   new Strategy(
@@ -84,20 +75,6 @@ app.get('/auth/status', (req, res) => {
   }
 });
 
-// 간단한 로그인 API (GitHub OAuth 대신 사용)
-app.post('/auth/login', (req, res) => {
-  // 세션에 사용자 정보 저장
-  req.session.user = mockUser;
-  req.session.isAuthenticated = true;
-  
-  res.json({
-    isAuthenticated: true,
-    displayName: mockUser.displayName,
-    username: mockUser.username,
-    avatar: mockUser.avatar
-  });
-});
-
 app.post('/auth/logout', (req, res) => {
   // 세션 삭제
   req.session.destroy((err) => {
@@ -108,15 +85,14 @@ app.post('/auth/logout', (req, res) => {
   });
 });
 
-// GitHub OAuth Routes (임시로 비활성화)
-app.get("/auth/github", (req, res) => {
-  res.status(404).json({ error: 'GitHub OAuth is temporarily disabled' });
-});
+// GitHub OAuth Routes
+app.get("/auth/github", passport.authenticate("github"));
 
 app.get(
   "/auth/github/callback",
-  (req, res) => {
-    res.status(404).json({ error: 'GitHub OAuth is temporarily disabled' });
+  passport.authenticate("github", { failureRedirect: "http://localhost:3000/" }),
+  function (req, res) {
+    res.redirect("http://localhost:3000/");
   }
 );
 

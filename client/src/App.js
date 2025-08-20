@@ -311,23 +311,8 @@ function App() {
   };
 
   const handleLogin = async () => {
-    try {
-      const response = await fetch('/auth/login', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      if (response.ok) {
-        const userData = await response.json();
-        setIsLoggedIn(true);
-        setUser(userData);
-      }
-    } catch (error) {
-      console.log('로그인 실패:', error);
-    }
+    // GitHub OAuth URL로 리다이렉트
+    window.location.href = 'http://localhost:4000/auth/github';
   };
 
   const handleLogout = async () => {

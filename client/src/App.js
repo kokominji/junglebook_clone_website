@@ -76,6 +76,13 @@ const UserDescription = styled.p`
   margin: 0;
 `;
 
+const UserEmail = styled.p`
+  font-size: 12px;
+  color: #666;
+  margin: 0;
+  margin-top: 2px;
+`;
+
 const RoomHeader = styled.div`
   position: sticky;
   top: 0;
@@ -416,10 +423,11 @@ function App() {
             )}
           </Avatar>
           <UserInfo>
-            <UserName>{isLoggedIn ? (user?.displayName || '사용자') : '로그인'}</UserName>
+            <UserName>{isLoggedIn ? (user?.displayName || user?.username || '사용자') : '로그인'}</UserName>
             <UserDescription>
               {isLoggedIn ? '크래프톤 정글 9기' : '클릭하여 로그인하세요.'}
             </UserDescription>
+
           </UserInfo>
         </UserProfile>
 

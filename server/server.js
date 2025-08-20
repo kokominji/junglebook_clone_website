@@ -1,10 +1,11 @@
-const express = require('express')
-const passport = require("passport")
-const Strategy = require("passport-github").Strategy
-const cors = require('cors')
-const db = require('./config/db.js')
-const app = express()
-const port = 4000
+const express = require("express");
+const passport = require("passport");
+const Strategy = require("passport-github2").Strategy;
+const cors = require("cors");
+const db = require("./config/db");
+
+const app = express();
+const port = 4000;
 
 // CORS 설정
 app.use(cors({
@@ -20,10 +21,46 @@ passport.use(
       clientSecret: process.env["GITHUB_CLIENT_SECRET"] || "your_github_client_secret",
       callbackURL: "http://localhost:4000/auth/github/callback",
     },
-    function (accessToken, refreshToken, profile, cb) {
-      console.log("GitHub profile:", profile);
-      // 사용자 정보를 데이터베이스에 저장하거나 조회하는 로직
-      return cb(null, profile);
+    async function (accessToken, refreshToken, profile, cb) {
+      try {
+        console.log("GitHub profile:", profile);
+        
+        // 사용자 정보를 MySQL에 저장하거나 업데이트
+        const userData = {
+          github_id: profile.id.toString(),
+          user_name: profile.username,
+          display_name: profile.displayName || profile.username,
+          profile_url: profile.photos?.[0]?.value,
+          access_token: accessToken
+        };
+
+        // 기존 사용자 확인
+        const [existingUsers] = await db.query(
+          'SELECT * FROM users WHERE github_id = ?',
+          [userData.github_id]
+        );
+
+        if (existingUsers.length > 0) {
+          // 기존 사용자 정보 업데이트
+          await db.query(
+            'UPDATE users SET user_name = ?, display_name = ?, profile_url = ?, access_token = ?, updated_at = CURRENT_TIMESTAMP WHERE github_id = ?',
+            [userData.user_name, userData.display_name, userData.profile_url, userData.access_token, userData.github_id]
+          );
+          console.log('기존 사용자 정보 업데이트:', profile.username);
+        } else {
+          // 새 사용자 등록
+          await db.query(
+            'INSERT INTO users (github_id, user_name, display_name, profile_url, access_token) VALUES (?, ?, ?, ?, ?)',
+            [userData.github_id, userData.user_name, userData.display_name, userData.profile_url, userData.access_token]
+          );
+          console.log('새 사용자 등록:', profile.username);
+        }
+
+        return cb(null, userData);
+      } catch (error) {
+        console.error('사용자 정보 저장 중 오류:', error);
+        return cb(error);
+      }
     }
   )
 );
@@ -66,9 +103,9 @@ app.get('/auth/status', (req, res) => {
   if (req.isAuthenticated()) {
     res.json({
       isAuthenticated: true,
-      displayName: req.user.displayName || req.user.username,
-      username: req.user.username,
-      avatar: req.user.photos?.[0]?.value
+      displayName: req.user.display_name || req.user.user_name,
+      username: req.user.user_name,
+      avatar: req.user.profile_url
     });
   } else {
     res.status(401).json({ isAuthenticated: false });
@@ -96,15 +133,87 @@ app.get(
   }
 );
 
-// 예약 관련 API
-app.get('/api/reservations', (req, res) => {
-  // 예약 목록 조회 로직
-  res.json([]);
+// 사용자 정보 API
+app.get('/api/user', async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ error: '로그인이 필요합니다.' });
+  }
+
+  try {
+    const [users] = await db.query(
+      'SELECT user_id, github_id, user_name, display_name, profile_url, created_at FROM users WHERE github_id = ?',
+      [req.user.github_id]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({ error: '사용자를 찾을 수 없습니다.' });
+    }
+
+    res.json(users[0]);
+  } catch (error) {
+    console.error('사용자 정보 조회 오류:', error);
+    res.status(500).json({ error: '서버 오류가 발생했습니다.' });
+  }
 });
 
-app.post('/api/reservations', (req, res) => {
-  // 예약 생성 로직
-  res.json({ message: '예약이 완료되었습니다.' });
+// 모든 사용자 목록 API (관리자용)
+app.get('/api/users', async (req, res) => {
+  try {
+    const [users] = await db.query(
+      'SELECT user_id, github_id, user_name, display_name, profile_url, created_at FROM users ORDER BY created_at DESC'
+    );
+    res.json(users);
+  } catch (error) {
+    console.error('사용자 목록 조회 오류:', error);
+    res.status(500).json({ error: '서버 오류가 발생했습니다.' });
+  }
+});
+
+// 예약 관련 API
+app.get('/api/reservations', async (req, res) => {
+  try {
+    const [reservations] = await db.query(`
+      SELECT r.*, u.user_name, u.display_name, u.profile_url 
+      FROM reservations r 
+      JOIN users u ON r.user_id = u.user_id 
+      ORDER BY r.slot_time DESC
+    `);
+    res.json(reservations);
+  } catch (error) {
+    console.error('예약 목록 조회 오류:', error);
+    res.status(500).json({ error: '서버 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/reservations', async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ error: '로그인이 필요합니다.' });
+  }
+
+  try {
+    const { slot_time } = req.body;
+    
+    // 사용자 ID 조회
+    const [users] = await db.query(
+      'SELECT user_id FROM users WHERE github_id = ?',
+      [req.user.github_id]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({ error: '사용자를 찾을 수 없습니다.' });
+    }
+
+    // 예약 생성
+    await db.query(
+      'INSERT INTO reservations (user_id, slot_time, slot_status) VALUES (?, ?, ?)',
+      [users[0].user_id, slot_time, 'reserved']
+    );
+
+    res.json({ message: '예약이 완료되었습니다.' });
+  } catch (error) {
+    console.error('예약 생성 오류:', error);
+    res.status(500).json({ error: '서버 오류가 발생했습니다.' });
+  }
 });
 
 // 기존 API

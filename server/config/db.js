@@ -17,4 +17,5 @@ pool.getConnection((err, connection) => {
     connection.release(); // 연결 해제
 });
 
+
 module.exports = pool;
